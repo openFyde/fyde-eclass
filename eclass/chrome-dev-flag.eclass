@@ -14,7 +14,7 @@ CHROME_TMP_UI="ui.override"
 S=${WORKDIR}
 
 check_file() {
-  if [ ! -f $1 ]; then 
+  if [ ! -f $1 ]; then
      eerror "$1 doesn't exist."
   fi
 }
@@ -25,7 +25,7 @@ append_flags() {
       if [ -z "`grep -e $flag $chrome_dev`" ]; then
         echo $flag >> $chrome_dev
       fi
-    done  
+    done
 }
 
 remove_flags() {
@@ -46,7 +46,7 @@ append_flags_ui() {
     for flag in ${CHROME_DEV_FLAGS}; do
         [ -z "$(echo $origin_flags | grep -e $flag)" ] && real_flags="${real_flags} ${flag}"
     done
-    real_flags="${origin_flags}${real_flags}"    
+    real_flags="${origin_flags}${real_flags}"
     if [ -n "$real_flags" ]; then
         sed -i "/^env CHROME_COMMAND_FLA/s/G.*/G=\"${real_flags}\"/g" $CHROME_TMP_UI
     fi
@@ -63,7 +63,6 @@ src_compile() {
       fi
       einfo "append flags: ${CHROME_DEV_FLAGS}"
       append_flags $CHROME_DEV_FLAGS
-      append_flags_ui
     fi
     if [ -n "$CHROME_REMOVE_FLAGS" ]; then
       einfo "remove flags: ${CHROME_DEV_FLAGS}"
@@ -74,6 +73,4 @@ src_compile() {
 src_install() {
     insinto /etc
     doins $CHROME_TMP_CONFIG
-    insinto /etc/init
-    doins $CHROME_TMP_UI
 }
