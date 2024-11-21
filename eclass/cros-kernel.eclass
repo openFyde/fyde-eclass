@@ -2010,6 +2010,9 @@ eclass_dir() {
 	if [[ ! -d ${d} ]] ; then
 		d="${ECLASSDIR_LOCAL}/cros-kernel"
 	fi
+	if [[ ! -d ${d} ]] ; then
+		d="/mnt/host/source/src/third_party/chromiumos-overlay/eclass/cros-kernel"
+	fi
 	echo "${d}"
 }
 
