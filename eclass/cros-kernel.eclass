@@ -32,6 +32,28 @@ case "${EAPI:-0}" in
 7) ;;
 esac
 
+# @ECLASS-VARIABLE: AFDO_PROFILE_VERSION
+# @DEFAULT_UNSET
+# @DESCRIPTION:
+# AFDO profile version to use for X86. Autorolled by pupr.
+
+# @ECLASS-VARIABLE: ARM_AFDO_PROFILE_VERSION
+# @DEFAULT_UNSET
+# @DESCRIPTION:
+# AFDO profile version to use for ARM. Autorolled by pupr.
+
+# @ECLASS-VARIABLE: AFDO_FROZEN_PROFILE_VERSION
+# @DEFAULT_UNSET
+# @DESCRIPTION:
+# Frozen X86 AFDO profile version to use. If set, overrides the autorolled
+# AFDO_PROFILE_VERSION variable.
+
+# @ECLASS-VARIABLE: ARM_AFDO_FROZEN_PROFILE_VERSION
+# @DEFAULT_UNSET
+# @DESCRIPTION:
+# Frozen ARM AFDO profile version to use. If set, overrides the autorolled
+# ARM_AFDO_PROFILE_VERSION variable.
+
 # Since we use CHROMEOS_KERNEL_CONFIG, CHROMEOS_KERNEL_SPLITCONFIG, and
 # CHROMEOS_DTBS here, it is not safe to reuse the kernel prebuilts across
 # different boards. Inherit the cros-board eclass to make sure that doesn't
@@ -55,6 +77,7 @@ DEPEND="
 	flexor_ramfs? ( chromeos-base/chromeos-initramfs[flexor_ramfs] )
 	minios_ramfs? ( chromeos-base/chromeos-initramfs[minios_ramfs] )
 	recovery_ramfs? ( chromeos-base/chromeos-initramfs[recovery_ramfs] )
+	prod_ramfs? ( chromeos-base/chromeos-initramfs[prod_ramfs] )
 	builtin_fw_mali_g57? ( virtual/opengles )
 	builtin_fw_t210_bpmp? ( sys-kernel/tegra_bpmp-t210 )
 	builtin_fw_t210_nouveau? ( sys-kernel/nouveau-firmware )
@@ -75,7 +98,7 @@ DEPEND="
 	builtin_fw_x86_cml_ucode? ( chromeos-base/cml-ucode-firmware-private )
 	builtin_fw_x86_czn_ucode? ( sys-firmware/czn-ucode-firmware-private )
 	builtin_fw_x86_glk_ucode? ( chromeos-base/glk-ucode-firmware-private )
-	builtin_fw_x86_intel_ucode? ( sys-firmware/intel-ucode-firmware )
+	builtin_fw_x86_intel_ucode? ( sys-firmware/intel-ucode-firmware:= )
 	builtin_fw_x86_jsl_ucode? ( chromeos-base/jsl-ucode-firmware-private )
 	builtin_fw_x86_kbl_ucode? ( chromeos-base/kbl-ucode-firmware-private )
 	builtin_fw_x86_mdn_ucode? ( sys-firmware/mdn-ucode-firmware-private )
@@ -123,7 +146,6 @@ IUSE="
 	+dt_compression
 	+fit_compression_kernel_lz4
 	fit_compression_kernel_lzma
-	firmware_install
 	kernel-efi
 	-kernel_sources
 	kernel_warning_level_1
@@ -141,7 +163,6 @@ IUSE="
 	tpm2
 	-kernel_afdo
 	-kernel_afdo_verify
-	-kern_arm_afdo
 	+vdso32
 	-criu
 	-docker
@@ -154,7 +175,7 @@ REQUIRED_USE="
 	compilation_database? ( clang )
 	?? ( fit_compression_kernel_lz4 fit_compression_kernel_lzma )
 	kernel_afdo? ( clang )
-	kern_arm_afdo? ( kernel_afdo )
+	kernel_afdo_verify? ( kernel_afdo )
 	lld? ( clang )
 	llvm_ias? ( clang )
 "
@@ -174,28 +195,44 @@ SRC_URI=""
 KERNEL_VERSION="${PN#chromeos-kernel-}"
 KERNEL_VERSION="${KERNEL_VERSION/_/.}"
 
-# Specifying AutoFDO profiles in SRC_URI and let ebuild fetch it for us.
+# Legacy: some builders depend on x86 profile names having no arch prefix (e.g.,
+# instead of `X86_AFDO_FROZEN_PROFILE_VERSION`, they're spelled
+# `AFDO_FROZEN_PROFILE_VERSION`). They're renamed here.
+#
 # Prefer the frozen version of afdo profiles if set.
-AFDO_VERSION=${AFDO_FROZEN_PROFILE_VERSION:-${AFDO_PROFILE_VERSION}}
+X86_AFDO_VERSION=${AFDO_FROZEN_PROFILE_VERSION:-${AFDO_PROFILE_VERSION}}
 ARM_AFDO_VERSION=${ARM_AFDO_FROZEN_PROFILE_VERSION:-${ARM_AFDO_PROFILE_VERSION}}
 
 GS_PREFIX="gs://chromeos-prebuilt/afdo-job/cwp/kernel"
-if [[ -n "${AFDO_VERSION}" ]]; then
-	# Set AFDO_LOCATION if not already set.
+if [[ -n "${X86_AFDO_VERSION}" ]]; then
 	: "${AFDO_LOCATION:="${GS_PREFIX}/amd64/${KERNEL_VERSION}"}"
-	AFDO_GCOV="${PN}-${AFDO_VERSION}.gcov"
-	AFDO_GCOV_EXTBINARY="${AFDO_GCOV}.extbinary.afdo"
-	SRC_URI+=" kernel_afdo? (
-		${AFDO_LOCATION}/${AFDO_VERSION}.gcov.xz -> ${AFDO_GCOV}.xz
-	)"
+	: "${X86_AFDO_LOCATION:="${AFDO_LOCATION}"}"
+	X86_AFDO_PROFILE="${PN}-${X86_AFDO_VERSION}.afdo"
+	X86_AFDO_SRC_URI="
+		${X86_AFDO_LOCATION}/${X86_AFDO_VERSION}.afdo.xz -> ${X86_AFDO_PROFILE}.xz
+	"
 fi
 if [[ -n "${ARM_AFDO_VERSION}" ]]; then
 	: "${ARM_AFDO_LOCATION:="${GS_PREFIX}/arm/${KERNEL_VERSION}"}"
-	ARM_AFDO_GCOV="${PN}-${ARM_AFDO_VERSION}.gcov"
-	ARM_AFDO_GCOV_EXTBINARY="${ARM_AFDO_GCOV}.extbinary.afdo"
-	SRC_URI+=" kern_arm_afdo? (
-		${ARM_AFDO_LOCATION}/${ARM_AFDO_VERSION}.gcov.xz -> ${ARM_AFDO_GCOV}.xz
-	)"
+	ARM_AFDO_PROFILE="${PN}-${ARM_AFDO_VERSION}.afdo"
+	ARM_AFDO_SRC_URI="
+		${ARM_AFDO_LOCATION}/${ARM_AFDO_VERSION}.afdo.xz -> ${ARM_AFDO_PROFILE}.xz
+	"
+fi
+
+if [[ -n "${X86_AFDO_VERSION}" && -n "${ARM_AFDO_VERSION}" ]]; then
+	SRC_URI+=" kernel_afdo? (
+		arm? ( ${ARM_AFDO_SRC_URI} )
+		arm64? ( ${ARM_AFDO_SRC_URI} )
+		!arm? ( !arm64? ( ${X86_AFDO_SRC_URI} ) )
+	) "
+elif [[ -n "${X86_AFDO_VERSION}" ]]; then
+	SRC_URI+=" kernel_afdo? ( ${X86_AFDO_SRC_URI} ) "
+elif [[ -n "${ARM_AFDO_VERSION}" ]]; then
+	SRC_URI+=" kernel_afdo? ( ${ARM_AFDO_SRC_URI} ) "
+else
+	# If no profiles are available, AFDO isn't usable.
+	REQUIRED_USE+=" !kernel_afdo"
 fi
 
 cros-kernel_have_patches() {
@@ -260,11 +297,11 @@ CONFIG_FRAGMENTS=(
 	ca0132
 	criu
 	cros_ec_mec
-	cros_ec_wdt
 	debug
 	debugobjects
 	devdebug
 	disable_itco
+	prod_ramfs
 	diskswap
 	dmadebug
 	dm_snapshot
@@ -285,7 +322,6 @@ CONFIG_FRAGMENTS=(
 	highmem
 	hypervisor_guest
 	i2cdev
-	iioservice
 	irqsoff_tracer
 	iscsi
 	livepatch
@@ -303,7 +339,7 @@ CONFIG_FRAGMENTS=(
 	kprobes
 	kunit
 	kvm_invept_global
-	kvm_host
+  kvm_host
 	kvm_nested
 	kvm_virt_suspend_time
 	lockdebug
@@ -445,11 +481,6 @@ CONFIG_MFD_CROS_EC_LPC_MEC=y
 CONFIG_CROS_EC_LPC_MEC=y
 "
 
-cros_ec_wdt_desc="Support for EC-based watchdog"
-cros_ec_wdt_config="
-CONFIG_CROS_EC_WATCHDOG=y
-"
-
 debugobjects_desc="Enable kernel debug objects debugging"
 debugobjects_config="
 CONFIG_DEBUG_OBJECTS=y
@@ -586,11 +617,6 @@ i2cdev_config="
 CONFIG_I2C_CHARDEV=y
 "
 
-iioservice_desc="Enable IIO service"
-iioservice_config="
-# CONFIG_IIO_CROS_EC_SENSORS_RING is not set
-"
-
 irqsoff_tracer_desc="irqsoff tracer"
 irqsoff_tracer_config="
 CONFIG_IRQSOFF_TRACER=y
@@ -625,14 +651,11 @@ kcfi_config="
 CONFIG_CFI_CLANG=y
 "
 
-# Move config section errors to warning to prevent emerge failures.
-# TODO(b/336854404): Re-enable config section errors.
 gcov_desc="Enable gcov"
 gcov_config="
 CONFIG_GCOV_KERNEL=y
 CONFIG_GCOV_FORMAT_AUTODETECT=y
 CONFIG_GCOV_PROFILE_ALL=y
-CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 CONFIG_DEBUG_INFO_BTF=n
 "
 
@@ -826,6 +849,14 @@ CONFIG_INITRAMFS_SOURCE="%ROOT%/var/lib/initramfs/minios_ramfs.cpio"
 CONFIG_INITRAMFS_COMPRESSION_NONE=y
 CONFIG_MODULE_ALLOW_BTF_MISMATCH=y
 '
+
+prod_ramfs_desc="Initramfs for prod Chromebooks"
+prod_ramfs_config='
+CONFIG_INITRAMFS_SOURCE="%ROOT%/var/lib/initramfs/prod_ramfs.cpio"
+CONFIG_INITRAMFS_COMPRESSION_NONE=y
+CONFIG_DM_INIT=n
+'
+
 
 vfat_desc="vfat"
 vfat_config="
@@ -1379,13 +1410,13 @@ FIRMWARE_BINARIES=(
 	builtin_fw_guc_adl
 	builtin_fw_guc_adl_kernelnext
 	builtin_fw_guc_adln
-	builtin_fw_guc_g9
 	builtin_fw_guc_tgl
 	builtin_fw_huc_adl
 	builtin_fw_huc_adl_kernelnext
 	builtin_fw_huc_adln
-	builtin_fw_huc_g9
 	builtin_fw_huc_tgl
+	builtin_fw_intel_apl_i915
+	builtin_fw_intel_kbl_i915
 	builtin_fw_intel_jsl_i915
 	builtin_fw_intel_mtl_i915
 	builtin_fw_mali_g57
@@ -1592,9 +1623,16 @@ builtin_fw_guc_adln_files=(
 	i915/adlp_dmc.bin
 )
 
-builtin_fw_guc_g9_desc="GuC Firmware for Gen9"
-builtin_fw_guc_g9_files=(
+builtin_fw_intel_apl_i915_desc="DMC i915 Firmware for APL"
+builtin_fw_intel_apl_i915_files=(
+	i915/bxt_dmc_ver1_07.bin
+)
+
+builtin_fw_intel_kbl_i915_desc="GuC, HuC, DMC i915 Firmware for KBL"
+builtin_fw_intel_kbl_i915_files=(
 	i915/kbl_guc_ver9_39.bin
+	i915/kbl_huc_ver02_00_1810.bin
+	i915/kbl_dmc_ver1_04.bin
 )
 
 builtin_fw_intel_jsl_i915_desc="GuC, HuC, DMC i915 Firmware for JSL"
@@ -1626,11 +1664,6 @@ builtin_fw_huc_adln_desc="HuC Firmware for ADL-N"
 builtin_fw_huc_adln_files=(
 	i915/tgl_huc_7.9.3.bin
 	i915/tgl_huc.bin
-)
-
-builtin_fw_huc_g9_desc="HuC Firmware for Gen9"
-builtin_fw_huc_g9_files=(
-	i915/kbl_huc_ver02_00_1810.bin
 )
 
 builtin_fw_huc_tgl_desc="HuC Firmware for TGL"
@@ -1810,7 +1843,6 @@ builtin_fw_x86_intel_ucode_files=(
 	intel-ucode/06-8e-0a
 	intel-ucode/06-8e-0b
 	intel-ucode/06-8e-0c
-	intel-ucode/06-8f-04
 	intel-ucode/06-8f-05
 	intel-ucode/06-8f-06
 	intel-ucode/06-8f-07
@@ -1832,12 +1864,16 @@ builtin_fw_x86_intel_ucode_files=(
 	intel-ucode/06-a6-00
 	intel-ucode/06-a6-01
 	intel-ucode/06-a7-01
+	intel-ucode/06-aa-04
 	intel-ucode/06-b7-01
 	intel-ucode/06-ba-02
 	intel-ucode/06-ba-03
+	intel-ucode/06-ba-08
 	intel-ucode/06-be-00
 	intel-ucode/06-bf-02
 	intel-ucode/06-bf-05
+	intel-ucode/06-cf-01
+	intel-ucode/06-cf-02
 	intel-ucode/0f-00-07
 	intel-ucode/0f-00-0a
 	intel-ucode/0f-01-02
@@ -1977,6 +2013,7 @@ REQUIRED_USE+="
 		flexor_ramfs
 		minios_ramfs
 		recovery_ramfs
+		prod_ramfs
 	)
 	factory_netboot_ramfs? ( i2cdev )
 	factory_shim_ramfs? ( i2cdev )
@@ -1984,6 +2021,7 @@ REQUIRED_USE+="
 	factory_netboot_ramfs? ( || ( tpm tpm2 ) )
 	factory_shim_ramfs? ( || ( tpm tpm2 ) )
 	recovery_ramfs? ( || ( tpm tpm2 ) )
+	prod_ramfs? ( || ( tpm tpm2 ) )
 "
 
 # Get the CHROMEOS_KERNEL_FAMILY from the use flags(chromeos_kernel_family_*).
@@ -2009,9 +2047,6 @@ eclass_dir() {
 	local d="${ECLASSDIR}/cros-kernel"
 	if [[ ! -d ${d} ]] ; then
 		d="${ECLASSDIR_LOCAL}/cros-kernel"
-	fi
-	if [[ ! -d ${d} ]] ; then
-		d="/mnt/host/source/src/third_party/chromiumos-overlay/eclass/cros-kernel"
 	fi
 	echo "${d}"
 }
@@ -2433,7 +2468,7 @@ kmake() {
 	# so we do too.
 	# shellcheck disable=SC2154,SC2153
 	local kcflags="${KCFLAGS}"
-	use kernel_afdo && kcflags+=" -fprofile-sample-use=${WORKDIR}/${AFDO_GCOV_EXTBINARY}"
+	use kernel_afdo && kcflags+=" -fprofile-sample-use=${WORKDIR}/${AFDO_PROFILE}"
 
 	local indirect_branch_options_v1=(
 		"-mindirect-branch=thunk"
@@ -2536,6 +2571,27 @@ kmake() {
 		"$@"
 }
 
+# Set a few globals describing the AFDO profile to use. Must be called exactly
+# once if using AFDO in a build, with an argument of either "x86" or "arm".
+_cros-kernel_set_afdo_profile() {
+	local ty="$1"
+	case "${ty}" in
+		x86 )
+			einfo "Using X86 AFDO profile for this build."
+			AFDO_VERSION="${X86_AFDO_VERSION}"
+			AFDO_PROFILE="${X86_AFDO_PROFILE}"
+			;;
+		arm )
+			einfo "Using ARM AFDO profile for this build."
+			AFDO_VERSION="${ARM_AFDO_VERSION}"
+			AFDO_PROFILE="${ARM_AFDO_PROFILE}"
+			;;
+
+		* )
+			die "Unknown AFDO profile type: ${ty}"
+	esac
+}
+
 cros-kernel_src_unpack() {
 	# Force in-tree builds if private patches may have to be applied.
 	if cros-kernel_have_patches; then
@@ -2543,40 +2599,25 @@ cros-kernel_src_unpack() {
 	fi
 
 	cros-workon_src_unpack
-	if use kern_arm_afdo; then
-		# Use the Arm profile version.
-		AFDO_VERSION="${ARM_AFDO_VERSION}"
-		AFDO_GCOV="${ARM_AFDO_GCOV}"
-		AFDO_GCOV_EXTBINARY="${ARM_AFDO_GCOV_EXTBINARY}"
-	fi
-	if use kernel_afdo && [[ -z "${AFDO_VERSION}" ]]; then
-		if use kern_arm_afdo; then
-			PROF_VER="ARM_AFDO_PROFILE_VERSION"
-			AFDO_FLAG="kern_arm_afdo"
+	if use kernel_afdo; then
+		if use arm || use arm64; then
+			if [[ -n "${ARM_AFDO_VERSION}" ]]; then
+				_cros-kernel_set_afdo_profile arm
+			else
+				_cros-kernel_set_afdo_profile x86
+			fi
 		else
-			PROF_VER="AFDO_PROFILE_VERSION"
-			AFDO_FLAG="kernel_afdo"
+			if [[ -n "${X86_AFDO_VERSION}" ]]; then
+				_cros-kernel_set_afdo_profile x86
+			else
+				_cros-kernel_set_afdo_profile arm
+			fi
 		fi
-		eerror "${PROF_VER} is required in .ebuild by ${AFDO_FLAG}."
-		die
 	fi
 
 	pushd "${WORKDIR}" >/dev/null || die
 	if use kernel_afdo; then
-		unpack "${AFDO_GCOV}.xz"
-
-		# Compressed binary profiles are lazily loaded, so they save a
-		# meaningful amount of CPU and memory per clang invocation. They're
-		# only available with clang.
-		#
-		# TODO(b/319460882): These will soon be generated by our
-		# pipeline; no need to do the conversion here after that
-		# happens.
-		llvm-profdata merge \
-			-sample \
-			--extbinary \
-			-output="${AFDO_GCOV_EXTBINARY}" \
-			"${AFDO_GCOV}" || die
+		unpack "${AFDO_PROFILE}.xz"
 	fi
 	popd >/dev/null || die
 }
@@ -2972,10 +3013,6 @@ cros-kernel_src_compile() {
 # @DESCRIPTION:
 # install the kernel to the system at ${D}${install_prefix}.
 cros-kernel_src_install() {
-	if use firmware_install; then
-		die "The firmware_install USE flag is dead."
-	fi
-
 	if use buildtest ; then
 		ewarn "Skipping install for buildtest"
 		return 0
@@ -3162,7 +3199,7 @@ directory (outside of the chroot) to compile_commands_no_chroot.json."
 		# step in the builder will collect the (now verified) AFDO
 		# profile from here.
 		insinto "${install_prefix}/usr/lib/debug/boot"
-		doins "${DISTDIR}/${AFDO_GCOV}.xz"
+		doins "${DISTDIR}/${AFDO_PROFILE}.xz"
 	fi
 
 	# Generate the coverage artifacts needed for kernel instrumentation.
